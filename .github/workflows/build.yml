@@ -1,0 +1,255 @@
+name: Production Build
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    linux-arm64-build:
+        runs-on: ubuntu-24.04-arm
+        name: Build on ubuntu-24.04-arm
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+            - name: Install Linux dependencies
+              run: sudo apt-get update && sudo apt-get install -y build-essential flatpak flatpak-builder
+            - name: Setup cache
+              uses: actions/cache@v5
+              with:
+                key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+                path: |
+                  ${{ runner.temp }}/electron-cache
+                  ${{ runner.temp }}/electron-builder-cache
+            - name: Set up Node.js
+              uses: actions/setup-node@v6
+              with:
+                node-version: 24
+            - name: Install dependencies
+              run: npm ci
+            - name: Build
+              run: npm run build -- --linux deb appimage
+              env:
+                ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+                ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v6
+              with:
+                name: dist-linux-arm64
+                path: dist/*
+
+    linux-x64-build:
+        runs-on: ubuntu-24.04
+        name: Build on ubuntu-24.04
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+            - name: Install Linux dependencies
+              run: sudo apt-get update && sudo apt-get install -y build-essential flatpak flatpak-builder
+            - name: Setup cache
+              uses: actions/cache@v5
+              with:
+                key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+                path: |
+                  ${{ runner.temp }}/electron-cache
+                  ${{ runner.temp }}/electron-builder-cache
+            - name: Set up Node.js
+              uses: actions/setup-node@v6
+              with:
+                node-version: 24
+            - name: Install dependencies
+              run: npm ci
+            - name: Build
+              run: sudo npm run build -- --linux deb appimage snap
+              env:
+                ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+                ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v6
+              with:
+                name: dist-linux-x64
+                path: dist/*
+
+    macos-build:
+        strategy:
+            matrix:
+                platform: [
+                    macos-15-intel,
+                    macos-15,
+                ]
+        runs-on: ${{ matrix.platform }}
+        name: Build on ${{ matrix.platform }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+            - name: Setup cache
+              uses: actions/cache@v5
+              with:
+                key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+                path: |
+                  ${{ runner.temp }}/electron-cache
+                  ${{ runner.temp }}/electron-builder-cache
+            - name: Set up Node.js
+              uses: actions/setup-node@v6
+              with:
+                node-version: 24
+            - name: Install dependencies
+              run: npm ci
+            - name: Setup Keychain
+              env:
+                MACOS_APP_CERTIFICATE_BASE64: ${{ secrets.MACOS_APP_CERTIFICATE_BASE64 }}
+                MACOS_APP_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_APP_CERTIFICATE_PASSWORD }}
+                MACOS_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_BASE64 }}
+                MACOS_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
+                KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+              run: |
+                set -eo pipefail
+            
+                APP_CERT_PATH="$RUNNER_TEMP/developer_id_application.p12"
+                INSTALLER_CERT_PATH="$RUNNER_TEMP/developer_id_installer.p12"
+                KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+            
+                echo "$MACOS_APP_CERTIFICATE_BASE64" | base64 --decode > "$APP_CERT_PATH"
+                echo "$MACOS_INSTALLER_CERTIFICATE_BASE64" | base64 --decode > "$INSTALLER_CERT_PATH"
+            
+                security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+                security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            
+                security import "$APP_CERT_PATH" \
+                  -P "$MACOS_APP_CERTIFICATE_PASSWORD" \
+                  -A \
+                  -t cert \
+                  -f pkcs12 \
+                  -k "$KEYCHAIN_PATH"
+            
+                security import "$INSTALLER_CERT_PATH" \
+                  -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" \
+                  -A \
+                  -t cert \
+                  -f pkcs12 \
+                  -k "$KEYCHAIN_PATH"
+            
+                security list-keychains -d user -s "$KEYCHAIN_PATH"
+                security default-keychain -d user -s "$KEYCHAIN_PATH"
+            
+                security set-key-partition-list \
+                  -S apple-tool:,apple:,codesign: \
+                  -s \
+                  -k "$KEYCHAIN_PASSWORD" \
+                  "$KEYCHAIN_PATH"
+            
+                echo "Available code signing identities:"
+                security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+            - name: Build
+              run: npm run build
+              env:
+                ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+                ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+                APPLE_ID: ${{ secrets.APPLE_ID }}
+                APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+                APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v6
+              with:
+                name: dist-${{ matrix.platform }}
+                path: dist/*
+
+    windows-build:
+        strategy:
+            matrix:
+                platform: [
+                    windows-2025-vs2026,
+                    windows-11-arm,
+                ]
+        runs-on: ${{ matrix.platform }}
+        name: Build on ${{ matrix.platform }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+            - name: Setup cache
+              uses: actions/cache@v5
+              with:
+                key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json') }}
+                path: |
+                  ${{ runner.temp }}/electron-cache
+                  ${{ runner.temp }}/electron-builder-cache
+            - name: Set up Node.js
+              uses: actions/setup-node@v6
+              with:
+                node-version: 24
+            - name: Install dependencies
+              run: npm ci
+            - name: Build
+              run: npm run build
+              env:
+                ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+                ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v6
+              with:
+                name: dist-${{ matrix.platform }}
+                path: dist/*
+
+    check-if-release:
+        runs-on: ubuntu-24.04-arm
+        name: Check if this is a new tag
+        outputs:
+            new-release: ${{ steps.check-if-release.outputs.NEW_RELEASE }}
+            package-version: ${{ steps.check-if-release.outputs.PACKAGE_VERSION }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                fetch-depth: 0
+            - name: Check if this is a new tag
+              id: check-if-release
+              run: |
+                set -eo pipefail
+                PACKAGE_VERSION=$(jq -r '.version' package.json)
+                if [ -n "$(git tag -l "v${PACKAGE_VERSION}")" ]; then
+                  echo "NEW_RELEASE=false" >> $GITHUB_OUTPUT
+                else
+                  echo "NEW_RELEASE=true" >> $GITHUB_OUTPUT
+                fi
+                echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+
+    release:
+        runs-on: ubuntu-24.04-arm
+        name: Publish release
+        needs: [
+            check-if-release,
+            linux-arm64-build,
+            linux-x64-build,
+            macos-build,
+            windows-build,
+        ]
+        if: needs.check-if-release.outputs.new-release == 'true'
+        permissions:
+            contents: write
+        steps:
+            - uses: actions-rust-lang/setup-rust-toolchain@v1
+            - uses: actions/checkout@v6
+              with:
+                fetch-depth: 0
+            - name: Download artifacts
+              uses: actions/download-artifact@v6
+            - name: Move macOS DMG's to dist
+              run: mkdir dist && mv dist-macos-15/*.dmg dist/Braindump-arm64.dmg && mv dist-macos-15-intel/*.dmg dist/Braindump-x64.dmg && rm -rf dist-macos-15 && rm -rf dist-macos-15-intel
+            - name: Move other wanted artifacts to dist from arm
+              run: mv dist-linux-arm64/*.AppImage dist/ && mv dist-linux-arm64/*.deb dist/ && rm -rf dist-linux-arm64
+            - name: Move other wanted artifacts to dist from x64
+              run: mv dist-linux-x64/*.AppImage dist/Braindump-x64.AppImage && mv dist-linux-x64/*.deb dist/ && mv dist-linux-x64/*.snap dist/ && rm -rf dist-linux-x64
+            - name: Move Windows installers to dist (but suffix the filename with the architecture)
+              run: mv dist-windows-2025-vs2026/*.exe dist/Braindump-setup-windows-x64.exe && mv dist-windows-11-arm/*.exe dist/Braindump-setup-windows-arm64.exe && rm -rf dist-windows-2025-vs2026 && rm -rf dist-windows-11-arm
+            - name: Run git-cliff
+              run: |
+                set -eo pipefail
+                cargo install git-cliff
+                git-cliff --latest --output CHANGELOG.md
+            - name: Create release
+              uses: ncipollo/release-action@v1
+              with:
+                artifacts: dist/*
+                bodyFile: CHANGELOG.md
+                tag: v${{ needs.check-if-release.outputs.package-version }}
+                name: Braindump v${{ needs.check-if-release.outputs.package-version }}
