@@ -1,0 +1,58 @@
+{
+    "private": true,
+    "name": "Braindump",
+    "description": "A local-first desktop app for journaling your thoughts.",
+    "author": {
+        "name": "Astrid Gealer",
+        "email": "astridgealer@gmail.com"
+    },
+    "version": "1.0.0",
+    "license": "MIT",
+    "type": "module",
+    "main": "src/bundle.js",
+    "scripts": {
+        "build:esbuild": "esbuild src/entrypoint.ts --bundle --format=esm --platform=node --sourcemap --packages=external --outfile=src/bundle.js",
+        "electron": "npm run build:esbuild && electron --enable-source-maps src/bundle.js",
+        "electron:watch": "NODE_ENV=development nodemon --watch src/entrypoint.ts --watch src/rpc/* --watch schema.sql --watch database.ts --watch src/adapters/* --exec 'npm run electron'",
+        "vite:dev": "vite",
+        "dev": "concurrently \"npm run electron:watch\" \"npm run vite:dev\"",
+        "build:vite:init": "rm -rf ui-dist && vite build && mv src/ui/ui-dist ui-dist",
+        "build:vite:ssr": "node scripts/ssr-html.js",
+        "build:vite": "npm run build:vite:init && npm run build:vite:ssr",
+        "build": "npm run build:esbuild && npm run build:vite && electron-builder --publish never",
+        "drizzle-kit": "drizzle-kit",
+        "export-schema": "drizzle-kit export | node scripts/transform-exported-schema.js > src/schema.sql"
+    },
+    "build": {
+        "appId": "place.astrid.braindump",
+        "mac": {
+            "category": "public.app-category.productivity",
+            "entitlements": "info.plist",
+            "entitlementsInherit": "info.plist"
+        },
+        "linux": {
+            "category": "Utility"
+        }
+    },
+    "dependencies": {
+        "@electric-sql/pglite": "^0.4.2",
+        "@huggingface/transformers": "^3.8.1",
+        "@mistralai/mistralai": "^2.1.2",
+        "drizzle-orm": "^0.45.1",
+        "openai": "^6.33.0",
+        "react": "^19.2.4",
+        "react-dom": "^19.2.4",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "electron": "^41.1.0",
+        "@tailwindcss/vite": "^4.2.2",
+        "@types/react": "^19.2.14",
+        "@vitejs/plugin-react": "^6.0.1",
+        "concurrently": "^9.2.1",
+        "drizzle-kit": "^0.31.10",
+        "electron-builder": "^26.8.1",
+        "nodemon": "^3.1.14",
+        "vite": "^8.0.3"
+    }
+}
